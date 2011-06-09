@@ -1,0 +1,7 @@
+; This is a simple FetLife configuration file.
+; Section names are StatusNet users.
+; Each user needs a password and an ID.
+
+[statusnet_username]
+fetlife_id = 12345
+fetlife_password = "your_fetlife_password_here"
