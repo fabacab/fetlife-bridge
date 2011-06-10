@@ -41,12 +41,35 @@ if (!defined('STATUSNET')) {
  */
 class FetLifeBridgePlugin extends Plugin
 {
-    var $flsettings;
+    var $fl_nick; // FetLife nickname for current user.
+    var $fl_pw; // FetLife password for current user.
+    var $fl_id; // FetLife user ID for current user.
+    var $cookiejar; // File to store new/updated cookies for current user.
 
+    /**
+     * Get required variables and whatnot when loading.
+     *
+     * @return bool True! :)
+     */
     function initialize ()
     {
-        // Read in configuration.
-        $this->flsettings = parse_ini_file( INSTALLDIR . '/local/FetLifeBridge/fetlifesettings.ini', true );
+        if (!$fl_ini = @parse_ini_file( INSTALLDIR . '/local/FetLifeBridge/fetlifesettings.ini', true ))
+        {
+            throw new Exception('Failed to load FetLife Bridge configuration. Sure the file exists?');
+        }
+        else
+        {
+            $dir = dirname(__FILE__);
+            $user = common_current_user();
+            if (array_key_exists($user->nickname, $fl_ini))
+            {
+                $this->fl_nick = $fl_ini[$user->nickname]['fetlife_nickname'];
+                $this->fl_pw = $fl_ini[$user->nickname]['fetlife_password'];
+                $this->cookiejar = "$dir/fl_sessions/{$this->fl_nick}";
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -59,19 +82,17 @@ class FetLifeBridgePlugin extends Plugin
     function onEndNoticeSave ($notice)
     {
 
-        $user = common_current_user();
-
-        if (!array_key_exists($user->nickname, $this->flsettings))
-        {
-            return false; // this user is not configured for FetLife
-        }
-        else
-        {
-            $fl_id = $this->flsettings[$user->nickname]['fetlife_id'];
-            $fl_pw = $this->flsettings[$user->nickname]['fetlife_password'];
+        if (NULL === $this->fl_nick) {
+            return true; // bail out and give other plugins a chance
         }
 
+        // Get a valid cookie if we don't have one yet.
+        if (!$this->haveValidFetLifeSession()) {
+            $fl_id = $this->obtainFetLifeSession();
+        }
 
+        // Prepare to use this cookie.
+        //$cookie_data = file_get_contents($cookiejar);
 
         $post_data   = $this->prepareForFetLife($notice->content);
         // TODO: Variablize and store this on a per-StatusNet user basis.
@@ -84,11 +105,12 @@ class FetLifeBridgePlugin extends Plugin
         // Set cURL options.
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_COOKIE, $cookie_data);
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $cookiejar); // save session cookies
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
         $r = array();
-        $r['result'] = curl_exec($ch);
+        $r['result'] = json_decode(curl_exec($ch));
         $r['status'] = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
         curl_close($ch);
@@ -96,7 +118,64 @@ class FetLifeBridgePlugin extends Plugin
         // Uncomment to debug result.
         //$this->logme($r);
 
+        return true;
     }
+
+    /**
+     * Lookup FetLife session for the current user, and test it.
+     *
+     * @return mixed Session string if exists and valid, false otherwise.
+     */
+    private function haveValidFetLifeSession ()
+    {
+        if (!$c = file_get_contents($this->cookiejar)) {
+            return $c; // False-equivalent is not valid.
+        } else {
+            // TODO: Return the valid session we have.
+        }
+
+    }
+
+    /**
+     * Grab a new FetLife session and save it in the cookie jar.
+     *
+     * @param $user The user object from StatusNet.
+     * @return mixed FetLife user ID (integer) on success, false otherwise.
+     */
+    private function obtainFetLifeSession ()
+    {
+        // Set up login credentials.
+        $post_data = http_build_query(array(
+            'nickname_or_email' => $this->fl_nick,
+            'password' => $this->fl_pw,
+            'commit' => 'Login+to+FetLife' // Emulate pushing the "Login to FetLife" button.
+        ));
+
+        // Login to FetLife.
+        $ch = curl_init('https://fetlife.com/session');
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        // Save the cookie we get.
+
+        curl_close($ch);
+
+        // Return the FetLife user ID we get.
+
+    }
+
+
+//    public function getFetLifeInfoForUser ()
+//    {
+//        $user = common_current_user();
+//        if (array_key_exists($user->nickname, $this->flsettings)) {
+//            return array(
+//                'fetlife_id' => $this->flsettings[$user->nickname]['fetlife_id'],
+//                'fetlife_password' => $this->flsettings[$user->nickname]['fetlife_password']
+//            );
+//        }
+//    }
 
     private function prepareForFetLife ($notice_content)
     {
@@ -144,10 +223,9 @@ class FetLifeBridgePlugin extends Plugin
     {
         $dir = dirname(__FILE__);
 
-        // TODO: Why isn't my action getting called from here?
-        //$this->logme($cls);
-        switch ($cls) {
-            case 'FetLifeSettingsAction':
+        switch ($cls)
+        {
+            case 'FetlifesettingsAction':
                 include_once $dir . '/' . strtolower(mb_substr($cls, 0, -6)) . '.php';
                 return false;
             default:
