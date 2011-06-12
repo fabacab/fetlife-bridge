@@ -120,9 +120,7 @@ class FetLifeBridgePlugin extends Plugin
             return true;
         }
 
-        // Prepare notice for FetLife.
-        // TODO: Enforce 200 character FetLife status story length limit.
-        $post_data = urlencode("status[body]={$notice->content}");
+        $post_data = $this->prepareForFetLife($notice);
 
         // "Cross-post" notice to FetLife.
         $ch = curl_init("http://fetlife.com/users/$fl_id/statuses.json");
@@ -143,6 +141,30 @@ class FetLifeBridgePlugin extends Plugin
         //$this->logme($r);
 
         return true;
+    }
+
+    /**
+     * Prepare notice to be sent to FetLife. Ensure it meets expectations.
+     *
+     * @param object Notice $notice A StatusNet Notice object.
+     * @return string URL-encoded data ready to be POST'ed to FetLife.
+     */
+    function prepareForFetLife ($notice) {
+        $str = $notice->content;
+
+        // Limit $notice->content length to 200 chars; FetLife barfs on 201.
+        $x = mb_strlen($str);
+        if (200 < $x) {
+            $y = mb_strlen($notice->uri);
+            // Truncate the notice content so it and its link back URI fit
+            // within 200 chars. Include room for an ellipsis and a space char.
+            $str = urlencode(mb_substr($str, 0, 200 - 2 - $y));
+            $str .= '%E2%80%A6+'; // urlencode()'d ellipsis and space character.
+            $str .= urlencode($notice->uri);
+        } else {
+            $str = urlencode($str);
+        }
+        return urlencode('status[body]=') . $str;
     }
 
     /**
