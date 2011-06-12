@@ -137,6 +137,12 @@ class FetLifeBridgePlugin extends Plugin
 
         curl_close($ch);
 
+        // Make a note of HTTP failure, if we encounter it.
+        // TODO: Flesh out this error handling, eventually.
+        if ("200" !== $r['status']) {
+            common_log(1, "Attempted to send notice to FetLife, but encountered HTTP error: {$r['status']}");
+        }
+
         // Uncomment to debug result.
         //$this->logme($r);
 
