@@ -127,7 +127,7 @@ class FetLifeBridgePlugin extends Plugin
 
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_COOKIEFILE, $this->cookiejar);
-        //curl_setopt($ch, CURLOPT_COOKIEJAR, $this->cookiejar); // save session cookies
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $this->cookiejar); // save newest session cookies
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
