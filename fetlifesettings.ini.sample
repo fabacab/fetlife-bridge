@@ -1,7 +1,12 @@
 ; This is a simple FetLife configuration file.
 ; Section names are StatusNet users.
-; Each user needs a password and an ID.
+; Each user needs a password and a nickname (username).
+;
+; The format of this file is a PHP .ini file. For documentation, see:
+;
+;    http://php.net/parse-ini-file
+;
 
 [statusnet_username]
-fetlife_id = 12345
+fetlife_nickname = "your_fetlife_username_here"
 fetlife_password = "your_fetlife_password_here"
