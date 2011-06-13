@@ -45,6 +45,7 @@ class FetLifeBridgePlugin extends Plugin
     var $fl_pw;       // FetLife password for current user.
     var $cookiejar;   // File to store new/updated cookies for current user.
     var $fl_ini_path; // File path where FetLife settings are stored.
+    const FETLIFE_MAX_STATUS_LENGTH = 200; // Character count.
 
     /**
      * Get required variables and whatnot when loading.
@@ -160,11 +161,11 @@ class FetLifeBridgePlugin extends Plugin
 
         // Limit $notice->content length to 200 chars; FetLife barfs on 201.
         $x = mb_strlen($str);
-        if (200 < $x) {
+        if ($this::FETLIFE_MAX_STATUS_LENGTH < $x) {
             $y = mb_strlen($notice->uri);
             // Truncate the notice content so it and its link back URI fit
             // within 200 chars. Include room for an ellipsis and a space char.
-            $str = urlencode(mb_substr($str, 0, 200 - 2 - $y));
+            $str = urlencode(mb_substr($str, 0, $this::FETLIFE_MAX_STATUS_LENGTH - 2 - $y));
             $str .= '%E2%80%A6+'; // urlencode()'d ellipsis and space character.
             $str .= urlencode($notice->uri);
         } else {
