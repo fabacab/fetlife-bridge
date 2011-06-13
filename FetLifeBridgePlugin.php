@@ -161,11 +161,11 @@ class FetLifeBridgePlugin extends Plugin
 
         // Limit $notice->content length to 200 chars; FetLife barfs on 201.
         $x = mb_strlen($str);
-        if ($this::FETLIFE_MAX_STATUS_LENGTH < $x) {
+        if (self::FETLIFE_MAX_STATUS_LENGTH < $x) {
             $y = mb_strlen($notice->uri);
             // Truncate the notice content so it and its link back URI fit
             // within 200 chars. Include room for an ellipsis and a space char.
-            $str = urlencode(mb_substr($str, 0, $this::FETLIFE_MAX_STATUS_LENGTH - 2 - $y));
+            $str = urlencode(mb_substr($str, 0, self::FETLIFE_MAX_STATUS_LENGTH - 2 - $y));
             $str .= '%E2%80%A6+'; // urlencode()'d ellipsis and space character.
             $str .= urlencode($notice->uri);
         } else {
