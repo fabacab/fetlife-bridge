@@ -54,38 +54,12 @@ class FetLifeBridgePlugin extends Plugin
      */
     function initialize ()
     {
-        $dir = dirname(__FILE__);
-        $this->fl_ini_path = "$dir/fetlifesettings.ini";
-        $user = common_current_user();
-
-        // Check to ensure configuration file is available and usable.
-        if (!$fl_ini = @parse_ini_file($this->fl_ini_path, true)) {
-            if (touch($this->fl_ini_path)) {
-                // Can write to file. Create a default.
-                $initxt  = "; This is an automatically generated file. Edit with care.\n";
-                $initxt .= "[{$user->nickname}]\n";
-                $initxt .= "fetlife_nickname = \"\"\n";
-                $initxt .= "fetlife_password = \"\"\n";
-                file_put_contents($this->fl_ini_path, $initxt) OR common_log(1, "Can't write to {$this->fl_ini_path}. Either configure manually or ensure this file is writable by your webserver.");
-            } else {
-                common_log(1, "Failed to load FetLife Bridge configuration. Sure {$this->fl_ini_path} file exists and is writable by the webserver?");
-            }
-        } else {
-            // Configure FetLife session store directory.
-            if (!file_exists("$dir/fl_sessions")) {
-                if (!mkdir("$dir/fl_sessions", 0700)) {
-                    throw new Exception('Failed to create FetLife Sessions store directory.');
-                }
-            }
-
-            if (array_key_exists($user->nickname, $fl_ini))
-            {
-                $this->fl_nick = $fl_ini[$user->nickname]['fetlife_nickname'];
-                $this->fl_pw = $fl_ini[$user->nickname]['fetlife_password'];
-                $this->cookiejar = "$dir/fl_sessions/{$this->fl_nick}";
-            }
-        }
-
+        $x = new FetLifeBridgePluginHelper();
+        $x->initialize();
+        $this->fl_nick = $x->fl_nick;
+        $this->fl_pw = $x->fl_pw;
+        $this->cookiejar = $x->cookiejar;
+        $this->fl_ini_path = $x->fl_ini_path;
         return true;
     }
 
@@ -322,4 +296,53 @@ class FetLifeBridgePlugin extends Plugin
         ob_end_clean();
         common_log(1, $y);
     }
+}
+
+/**
+ * This exists to avoid re-initializing the main plugin from the settings.
+ * TODO: Find a better way to do this, eh?
+ */
+class FetLifeBridgePluginHelper {
+
+    var $fl_nick;     // FetLife nickname for current user.
+    var $fl_pw;       // FetLife password for current user.
+    var $cookiejar;   // File to store new/updated cookies for current user.
+    var $fl_ini_path; // File path where FetLife settings are stored.
+
+    function initialize () {
+        $dir = dirname(__FILE__);
+        $this->fl_ini_path = "$dir/fetlifesettings.ini";
+        $user = common_current_user();
+
+        // Check to ensure configuration file is available and usable.
+        if (!$fl_ini = @parse_ini_file($this->fl_ini_path, true)) {
+            if (touch($this->fl_ini_path)) {
+                // Can write to file. Create a default.
+                $initxt  = "; This is an automatically generated file. Edit with care.\n";
+                $initxt .= "[{$user->nickname}]\n";
+                $initxt .= "fetlife_nickname = \"\"\n";
+                $initxt .= "fetlife_password = \"\"\n";
+                file_put_contents($this->fl_ini_path, $initxt) OR common_log(1, "Can't write to {$this->fl_ini_path}. Either configure manually or ensure this file is writable by your webserver.");
+            } else {
+                common_log(1, "Failed to load FetLife Bridge configuration. Sure {$this->fl_ini_path} file exists and is writable by the webserver?");
+            }
+        } else {
+            // Configure FetLife session store directory.
+            if (!file_exists("$dir/fl_sessions")) {
+                if (!mkdir("$dir/fl_sessions", 0700)) {
+                    throw new Exception('Failed to create FetLife Sessions store directory.');
+                }
+            }
+
+            if (array_key_exists($user->nickname, $fl_ini))
+            {
+                $this->fl_nick = $fl_ini[$user->nickname]['fetlife_nickname'];
+                $this->fl_pw = $fl_ini[$user->nickname]['fetlife_password'];
+                $this->cookiejar = "$dir/fl_sessions/{$this->fl_nick}";
+            }
+        }
+
+        return true;
+    }
+
 }

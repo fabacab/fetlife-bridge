@@ -35,7 +35,7 @@ class FetlifesettingsAction extends AccountSettingsAction
         // TODO: Instantiating a new object here causes interface issues.
         //       Find out how I can access variables from the other class
         //       when this action runs. For now, deal with the UI issue.
-        $this->flbp = new FetLifeBridgePlugin();
+        $this->flbp = new FetLifeBridgePluginHelper();
         $this->flbp->initialize();
 
         return true;
