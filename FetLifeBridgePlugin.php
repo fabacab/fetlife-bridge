@@ -91,7 +91,7 @@ class FetLifeBridgePlugin extends Plugin
 
         // If we still don't have an ID, no point in failing to send a status.
         if (!$fl_id) {
-            common_log(1, "Failed to get correct FetLife ID for FetLife nickname '$fl_nick'. Make sure your FetLife settings are correct?");
+            common_log(1, "Failed to get correct FetLife ID for FetLife nickname '{$this->fl_nick}'. Make sure your FetLife settings are correct?");
             return true;
         }
 
