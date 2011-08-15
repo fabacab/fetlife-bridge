@@ -147,6 +147,7 @@ class FetLifeBridgePlugin extends Plugin
      * Cross-post notice to FetLife.
      *
      * @param string $post_data A string prepared with `$this->prepareForFetLife()`.
+     * @param string $fl_id The FetLife user ID (as a string).
      * @param boolean $ssl Whether or not to use SSL/TLS by default. Defaults to true.
      * @return array $r
      * @see prepareForFetLife()
