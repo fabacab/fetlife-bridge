@@ -98,23 +98,18 @@ class FetLifeBridgePlugin extends Plugin
         $post_data = $this->prepareForFetLife($notice);
 
         // "Cross-post" notice to FetLife.
-        $ch = curl_init("http://fetlife.com/users/$fl_id/statuses.json");
-
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_COOKIEFILE, $this->cookiejar);
-        curl_setopt($ch, CURLOPT_COOKIEJAR, $this->cookiejar); // save newest session cookies
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-        $r = array();
-        $r['result'] = json_decode(curl_exec($ch));
-        $r['status'] = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-        curl_close($ch);
+        $r = $this->sendToFetLife($post_data, $fl_id, true);
 
         // Make a note of HTTP failure, if we encounter it.
         // TODO: Flesh out this error handling, eventually.
-        if (200 !== $r['status']) {
+        if (302 === $r['status']) {
+            common_log(1, "Attempted to send notice to FetLife, but encountered HTTP error: {$r['status']}. Trying again without SSL/TLS.");
+            // Try again without using SSL/TLS.
+            $x = $this->sendToFetLife($post_data, $fl_id, false);
+            if (200 !== $x['status']) {
+                common_log(1, "Non-SSL/TLS connection to FetLife also failed with HTTP error: {$x['status']}");
+            }
+        } else if (200 !== $r['status']) {
             common_log(1, "Attempted to send notice to FetLife, but encountered HTTP error: {$r['status']}");
         }
 
@@ -146,6 +141,38 @@ class FetLifeBridgePlugin extends Plugin
             $str = urlencode($str);
         }
         return urlencode('status[body]=') . $str;
+    }
+
+    /**
+     * Cross-post notice to FetLife.
+     *
+     * @param string $post_data A string prepared with `$this->prepareForFetLife()`.
+     * @param boolean $ssl Whether or not to use SSL/TLS by default. Defaults to true.
+     * @return array $r
+     * @see prepareForFetLife()
+     */
+    function sendToFetLife ($post_data, $fl_id, $ssl = true) {
+        $scheme = ($ssl) ? 'https' : 'http' ;
+        $ch = curl_init("$scheme://fetlife.com/users/$fl_id/statuses.json");
+
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $this->cookiejar);
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $this->cookiejar); // save newest session cookies
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        if ($ssl) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER);
+        }
+
+        $r = array();
+        $r['result'] = json_decode(curl_exec($ch));
+        $r['status'] = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $r['all']    = curl_getinfo($ch);
+
+        curl_close($ch);
+
+        return $r;
     }
 
     /**
