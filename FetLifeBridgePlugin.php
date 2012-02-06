@@ -31,7 +31,7 @@ if (!defined('STATUSNET')) {
 /**
  * Plugin for sending StatusNet notices as FetLife statuses
  *
- * This class allows users to link their Twitter accounts
+ * This class allows users to link their FetLife account
  *
  * @category Plugin
  * @author    Meitar Moscovitz <meitar@maymay.net>
