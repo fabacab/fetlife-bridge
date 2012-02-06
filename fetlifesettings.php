@@ -14,8 +14,6 @@ if (!defined('STATUSNET')) {
     exit(1);
 }
 
-require_once INSTALLDIR . '/lib/accountsettingsaction.php';
-
 /**
  * Settings for FetLife integration
  *
@@ -24,7 +22,7 @@ require_once INSTALLDIR . '/lib/accountsettingsaction.php';
  * @link      http://maymay.net/
  * @see       SettingsAction
  */
-class FetlifesettingsAction extends AccountSettingsAction
+class FetlifesettingsAction extends SettingsAction
 {
 
     var $flbp;
