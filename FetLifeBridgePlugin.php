@@ -72,11 +72,6 @@ class FetLifeBridgePlugin extends Plugin
      */
     function onEndNoticeSave ($notice)
     {
-        // Uncomment for debugging.
-//        $this->logme($notice);
-//        $this->logme($this->fl_nick);
-//        $this->logme($this->fl_pw);
-
 
         // TODO: Oh my god, refactor this.
 
@@ -124,7 +119,7 @@ class FetLifeBridgePlugin extends Plugin
         }
 
         // Uncomment to debug result.
-        //$this->logme($r);
+        //common_log(1, $r);
 
         return true;
     }
