@@ -298,10 +298,14 @@ class FetLifeBridgePlugin extends Plugin
         //     http://www.php.net/manual/en/function.html-entity-decode.php#104617
         $r = preg_replace_callback(
             '/(&#[0-9]+;)/',
-            function ($m) { return mb_convert_encoding($m[1], 'UTF-8', 'HTML-ENTITIES'); },
+            "myConvertHtmlEntities", // see function definition, below
             $matches[1]
         );
         return $r;
+    }
+
+    private function myConvertHtmlEntities ($m) {
+        return mb_convert_encoding($m[1], 'UTF-8', 'HTML-ENTITIES');
     }
 
     /**
