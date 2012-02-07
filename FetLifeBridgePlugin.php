@@ -85,8 +85,18 @@ class FetLifeBridgePlugin extends Plugin
         }
 
         // See if we've got a valid session, and grab a new one if not.
-        if (!$fl_id = $this->haveValidFetLifeSession()) {
-            $fl_id = $this->obtainFetLifeSession($this->fl_nick, $this->fl_pw);
+        // If we're already logged in successfully, this should return an
+        // Array with a user ID and an authenticity_token value.
+        $fl_x = $this->haveValidFetLifeSession();
+        if (is_array($fl_x)) {
+            $fl_id = $fl_x['fl_id'];
+            $fl_csrf_token = $fl_x['fl_csrf_token'];
+        }
+
+        if (!$fl_id) {
+            $arr_fl = $this->obtainFetLifeSession($this->fl_nick, $this->fl_pw);
+            $fl_id = $arr_fl['fl_id'];
+            $fl_csrf_token = $arr_fl['fl_csrf_token'];
         }
 
         // If we still don't have an ID, no point in failing to send a status.
@@ -98,14 +108,14 @@ class FetLifeBridgePlugin extends Plugin
         $post_data = $this->prepareForFetLife($notice);
 
         // "Cross-post" notice to FetLife.
-        $r = $this->sendToFetLife($post_data, $fl_id, true);
+        $r = $this->sendToFetLife($post_data, $fl_id, $fl_csrf_token, true);
 
         // Make a note of HTTP failure, if we encounter it.
         // TODO: Flesh out this error handling, eventually.
         if (302 === $r['status']) {
             common_log(1, "Attempted to send notice to FetLife, but encountered HTTP error: {$r['status']}. Trying again without SSL/TLS.");
             // Try again without using SSL/TLS.
-            $x = $this->sendToFetLife($post_data, $fl_id, false);
+            $x = $this->sendToFetLife($post_data, $fl_id, $fl_csrf_token, false);
             if (200 !== $x['status']) {
                 common_log(1, "Non-SSL/TLS connection to FetLife also failed with HTTP error: {$x['status']}");
             }
@@ -148,17 +158,19 @@ class FetLifeBridgePlugin extends Plugin
      *
      * @param string $post_data A string prepared with `$this->prepareForFetLife()`.
      * @param string $fl_id The FetLife user ID (as a string).
+     * @param string $fl_csrf_token The FetLife CSRF token for this request.
      * @param boolean $ssl Whether or not to use SSL/TLS by default. Defaults to true.
      * @return array $r
      * @see prepareForFetLife()
      */
-    function sendToFetLife ($post_data, $fl_id, $ssl = true) {
+    function sendToFetLife ($post_data, $fl_id, $fl_csrf_token, $ssl = true) {
         $scheme = ($ssl) ? 'https' : 'http' ;
         $ch = curl_init("$scheme://fetlife.com/users/$fl_id/statuses.json");
 
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_COOKIEFILE, $this->cookiejar);
         curl_setopt($ch, CURLOPT_COOKIEJAR, $this->cookiejar); // save newest session cookies
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array('X-Csrf-Token: ' . $fl_csrf_token));
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         if ($ssl) {
@@ -192,7 +204,7 @@ class FetLifeBridgePlugin extends Plugin
      * Tests the current cookiejar to ensure it's valid.
      *
      * @param string $fl_sess The FetLife sesssion to test. Currently must be a filepath to a cURL cookiefile.
-     * @return mixed FetLife user ID on success, false otherwise.
+     * @return mixed FetLife user ID and current CSRF token on success, false otherwise.
      */
     private function testFetLifeSession ($fl_sess)
     {
@@ -209,7 +221,10 @@ class FetLifeBridgePlugin extends Plugin
         if (curl_errno($ch)) {
             return false; // Some kind of error with cURL.
         } else {
-            return $this->findFetLifeUserId($fetlife_html); // Might also be false?
+            $r = array();
+            $r['fl_id'] = $this->findFetLifeUserId($fetlife_html);
+            $r['fl_csrf_token'] = $this->findFetLifeCSRFToken($fetlife_html);
+            return $r;
         }
 
     }
@@ -220,14 +235,22 @@ class FetLifeBridgePlugin extends Plugin
      *
      * @param string $nick_or_email The nickname or email address used for FetLife.
      * @param string $password The FetLife password.
-     * @return mixed FetLife user ID (integer) on success, false otherwise.
+     * @return mixed FetLife user ID and current CSRF token on success, false otherwise.
      */
     private function obtainFetLifeSession ($nick_or_email, $password)
     {
+
+        // Grab FetLife login page HTML to get CSRF token.
+        $ch = curl_init('https://fetlife.com/login');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        $fl_csrf_token = $this->findFetLifeCSRFToken(curl_exec($ch));
+        curl_close($ch);
+
         // Set up login credentials.
         $post_data = http_build_query(array(
             'nickname_or_email' => $nick_or_email,
             'password' => $password,
+            'authenticity_token' => $fl_csrf_token,
             'commit' => 'Login+to+FetLife' // Emulate pushing the "Login to FetLife" button.
         ));
 
@@ -247,7 +270,10 @@ class FetLifeBridgePlugin extends Plugin
         if (curl_errno($ch)) {
             return false; // Some kind of error with cURL.
         } else {
-            return $this->findFetLifeUserId($fetlife_html); // Might also be false?
+            $r = array();
+            $r['fl_id'] = $this->findFetLifeUserId($fetlife_html);
+            $r['fl_csrf_token'] = $this->findFetLifeCSRFToken($fetlife_html);
+            return $r;
         }
 
     }
@@ -262,6 +288,25 @@ class FetLifeBridgePlugin extends Plugin
         $matches = array();
         preg_match('/var currentUserId = ([0-9]+);/', $str, $matches);
         return $matches[1];
+    }
+
+    /**
+     * Given some HTML from FetLife, this finds the current CSRF Token.
+     *
+     * @param string $str Some raw HTML expected to be form FetLife.com.
+     * @return mixed CSRF Token string on success. False on failure.
+     */
+    private function findFetLifeCSRFToken ($str) {
+        $matches = array();
+        preg_match('/<meta name="csrf-token" content="([+a-zA-Z0-9&#;=-]+)"\/>/', $str, $matches);
+        // Decode numeric HTML entities if there are any. See also:
+        //     http://www.php.net/manual/en/function.html-entity-decode.php#104617
+        $r = preg_replace_callback(
+            '/(&#[0-9]+;)/',
+            function ($m) { return mb_convert_encoding($m[1], 'UTF-8', 'HTML-ENTITIES'); },
+            $matches[1]
+        );
+        return $r;
     }
 
     /**
