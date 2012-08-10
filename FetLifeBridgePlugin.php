@@ -103,23 +103,19 @@ class FetLifeBridgePlugin extends Plugin
         $post_data = $this->prepareForFetLife($notice);
 
         // "Cross-post" notice to FetLife.
-        $r = $this->sendToFetLife($post_data, $fl_id, $fl_csrf_token, true);
+        $r = $this->sendToFetLife($post_data, $fl_id, $fl_csrf_token);
 
         // Make a note of HTTP failure, if we encounter it.
         // TODO: Flesh out this error handling, eventually.
         if (302 === $r['status']) {
-            common_log(1, "Attempted to send notice to FetLife, but encountered HTTP error: {$r['status']}. Trying again without SSL/TLS.");
-            // Try again without using SSL/TLS.
-            $x = $this->sendToFetLife($post_data, $fl_id, $fl_csrf_token, false);
-            if (200 !== $x['status']) {
-                common_log(1, "Non-SSL/TLS connection to FetLife also failed with HTTP error: {$x['status']}");
-            }
+            common_log(1, "Attempted to send notice to FetLife, but encountered HTTP error: {$r['status']}.");
         } else if (200 !== $r['status']) {
             common_log(1, "Attempted to send notice to FetLife, but encountered HTTP error: {$r['status']}");
         }
 
         // Uncomment to debug result.
-        //common_log(1, $r);
+//        common_log(1, $r);
+//        $this->logme($r);
 
         return true;
     }
@@ -159,6 +155,7 @@ class FetLifeBridgePlugin extends Plugin
      * @see prepareForFetLife()
      */
     function sendToFetLife ($post_data, $fl_id, $fl_csrf_token, $ssl = true) {
+
         $scheme = ($ssl) ? 'https' : 'http' ;
         $ch = curl_init("$scheme://fetlife.com/users/$fl_id/statuses.json");
 
@@ -168,12 +165,14 @@ class FetLifeBridgePlugin extends Plugin
         curl_setopt($ch, CURLOPT_HTTPHEADER, array('X-Csrf-Token: ' . $fl_csrf_token));
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLINFO_HEADER_OUT, true);
         if ($ssl) {
             curl_setopt($ch, CURLOPT_SSL_VERIFYHOST);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER);
         }
 
         $r = array();
+
         $r['result'] = json_decode(curl_exec($ch));
         $r['status'] = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $r['all']    = curl_getinfo($ch);
