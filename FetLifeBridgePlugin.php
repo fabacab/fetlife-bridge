@@ -28,6 +28,8 @@ if (!defined('STATUSNET')) {
     exit(1);
 }
 
+require_once(dirname(__FILE__) . '/lib/FetLife.php');
+
 /**
  * Plugin for sending StatusNet notices as FetLife statuses
  *
@@ -43,9 +45,7 @@ class FetLifeBridgePlugin extends Plugin
 {
     var $fl_nick;     // FetLife nickname for current user.
     var $fl_pw;       // FetLife password for current user.
-    var $cookiejar;   // File to store new/updated cookies for current user.
     var $fl_ini_path; // File path where FetLife settings are stored.
-    const FETLIFE_MAX_STATUS_LENGTH = 200; // Character count.
 
     /**
      * Get required variables and whatnot when loading.
@@ -58,7 +58,6 @@ class FetLifeBridgePlugin extends Plugin
         $x->initialize();
         $this->fl_nick = $x->fl_nick;
         $this->fl_pw = $x->fl_pw;
-        $this->cookiejar = $x->cookiejar;
         $this->fl_ini_path = $x->fl_ini_path;
         return true;
     }
@@ -79,23 +78,11 @@ class FetLifeBridgePlugin extends Plugin
             return true; // bail out and give other plugins a chance
         }
 
-        // See if we've got a valid session, and grab a new one if not.
-        // If we're already logged in successfully, this should return an
-        // Array with a user ID and an authenticity_token value.
-        $fl_x = $this->haveValidFetLifeSession();
-        if (is_array($fl_x)) {
-            $fl_id = $fl_x['fl_id'];
-            $fl_csrf_token = $fl_x['fl_csrf_token'];
-        }
-
-        if (!$fl_id) {
-            $arr_fl = $this->obtainFetLifeSession($this->fl_nick, $this->fl_pw);
-            $fl_id = $arr_fl['fl_id'];
-            $fl_csrf_token = $arr_fl['fl_csrf_token'];
-        }
+        $FL = new FetLifeUser($this->fl_nick, $this->fl_pw);
+        $FL->logIn();
 
         // If we still don't have an ID, no point in failing to send a status.
-        if (!$fl_id) {
+        if (!$FL->id) {
             common_log(1, "Failed to get correct FetLife ID for FetLife nickname '{$this->fl_nick}'. Make sure your FetLife settings are correct?");
             return true;
         }
@@ -103,7 +90,7 @@ class FetLifeBridgePlugin extends Plugin
         $post_data = $this->prepareForFetLife($notice);
 
         // "Cross-post" notice to FetLife.
-        $r = $this->sendToFetLife($post_data, $fl_id, $fl_csrf_token);
+        $r = $this->sendToFetLife($post_data, $FL);
 
         // Make a note of HTTP failure, if we encounter it.
         // TODO: Flesh out this error handling, eventually.
@@ -127,49 +114,44 @@ class FetLifeBridgePlugin extends Plugin
      * @return string URL-encoded data ready to be POST'ed to FetLife.
      */
     function prepareForFetLife ($notice) {
-        $str = $notice->content;
+        $fl_notice = new FetLifeStatus($notice->content);
 
         // Limit $notice->content length to 200 chars; FetLife barfs on 201.
-        $x = mb_strlen($str);
-        if (self::FETLIFE_MAX_STATUS_LENGTH < $x) {
+        $x = mb_strlen($fl_notice->text);
+        if ($fl_notice::MAX_STATUS_LENGTH < $x) {
             $y = mb_strlen($notice->uri);
             // Truncate the notice content so it and its link back URI fit
             // within 200 chars. Include room for an ellipsis and a space char.
-            $str = urlencode(mb_substr($str, 0, self::FETLIFE_MAX_STATUS_LENGTH - 2 - $y));
-            $str .= '%E2%80%A6+'; // urlencode()'d ellipsis and space character.
-            $str .= urlencode($notice->uri);
+            $fl_notice->text = urlencode(mb_substr($fl_notice->text, 0, $fl_notice::MAX_STATUS_LENGTH - 2 - $y));
+            $fl_notice->text .= '%E2%80%A6+'; // urlencode()'d ellipsis and space character.
+            $fl_notice->text .= urlencode($notice->uri);
         } else {
-            $str = urlencode($str);
+            $fl_notice->text = urlencode($fl_notice->text);
         }
-        return urlencode('status[body]=') . $str;
+        return urlencode('status[body]=') . $fl_notice->text;
     }
 
     /**
      * Cross-post notice to FetLife.
      *
      * @param string $post_data A string prepared with `$this->prepareForFetLife()`.
-     * @param string $fl_id The FetLife user ID (as a string).
-     * @param string $fl_csrf_token The FetLife CSRF token for this request.
-     * @param boolean $ssl Whether or not to use SSL/TLS by default. Defaults to true.
+     * @param object $usr A FetLifeUser object from the libFetLife library.
      * @return array $r
      * @see prepareForFetLife()
      */
-    function sendToFetLife ($post_data, $fl_id, $fl_csrf_token, $ssl = true) {
+    function sendToFetLife ($post_data, $usr) {
 
-        $scheme = ($ssl) ? 'https' : 'http' ;
-        $ch = curl_init("$scheme://fetlife.com/users/$fl_id/statuses.json");
+        $ch = curl_init("https://fetlife.com/users/{$usr->id}/statuses.json");
 
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_COOKIEFILE, $this->cookiejar);
-        curl_setopt($ch, CURLOPT_COOKIEJAR, $this->cookiejar); // save newest session cookies
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array('X-Csrf-Token: ' . $fl_csrf_token));
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $usr->connection->cookiejar); // use session cookies
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $usr->connection->cookiejar); // save session cookies
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array('X-Csrf-Token: ' . $usr->connection->csrf_token));
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLINFO_HEADER_OUT, true);
-        if ($ssl) {
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER);
-        }
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 
         $r = array();
 
@@ -180,131 +162,6 @@ class FetLifeBridgePlugin extends Plugin
         curl_close($ch);
 
         return $r;
-    }
-
-    /**
-     * Lookup FetLife session for the current user, and test it.
-     */
-    private function haveValidFetLifeSession ()
-    {
-        if (!file_exists($this->cookiejar)) {
-            return false;
-        } else {
-            return $this->testFetLifeSession($this->cookiejar);
-        }
-    }
-
-    /**
-     * Tests the current cookiejar to ensure it's valid.
-     *
-     * @param string $fl_sess The FetLife sesssion to test. Currently must be a filepath to a cURL cookiefile.
-     * @return mixed FetLife user ID and current CSRF token on success, false otherwise.
-     */
-    private function testFetLifeSession ($fl_sess)
-    {
-        $ch = curl_init('http://fetlife.com/home');
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        // TODO: Branch to determine what kind of $fl_sess data we've got.
-        //       For now ASSUME PATH TO COOKIEFILE.
-        curl_setopt($ch, CURLOPT_COOKIEFILE, $fl_sess);
-
-        $fetlife_html = curl_exec($ch);
-
-        // TODO: Flesh out some of this error handling stuff.
-        if (curl_errno($ch)) {
-            return false; // Some kind of error with cURL.
-        } else {
-            $r = array();
-            $r['fl_id'] = $this->findFetLifeUserId($fetlife_html);
-            $r['fl_csrf_token'] = $this->findFetLifeCSRFToken($fetlife_html);
-            return $r;
-        }
-
-    }
-
-    /**
-     * Grab a new FetLife session cookie via FetLife.com login form,
-     * and saves it in the cookie jar.
-     *
-     * @param string $nick_or_email The nickname or email address used for FetLife.
-     * @param string $password The FetLife password.
-     * @return mixed FetLife user ID and current CSRF token on success, false otherwise.
-     */
-    private function obtainFetLifeSession ($nick_or_email, $password)
-    {
-
-        // Grab FetLife login page HTML to get CSRF token.
-        $ch = curl_init('https://fetlife.com/login');
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $fl_csrf_token = $this->findFetLifeCSRFToken(curl_exec($ch));
-        curl_close($ch);
-
-        // Set up login credentials.
-        $post_data = http_build_query(array(
-            'nickname_or_email' => $nick_or_email,
-            'password' => $password,
-            'authenticity_token' => $fl_csrf_token,
-            'commit' => 'Login+to+FetLife' // Emulate pushing the "Login to FetLife" button.
-        ));
-
-        // Login to FetLife.
-        $ch = curl_init('https://fetlife.com/session');
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
-        curl_setopt($ch, CURLOPT_COOKIEJAR, $this->cookiejar); // save session cookies
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-        $fetlife_html = curl_exec($ch); // Grab FetLife HTML page.
-
-        curl_close($ch);
-
-        // TODO: Flesh out some of this error handling stuff.
-        if (curl_errno($ch)) {
-            return false; // Some kind of error with cURL.
-        } else {
-            $r = array();
-            $r['fl_id'] = $this->findFetLifeUserId($fetlife_html);
-            $r['fl_csrf_token'] = $this->findFetLifeCSRFToken($fetlife_html);
-            return $r;
-        }
-
-    }
-
-    /**
-     * Given some HTML from FetLife, this finds the current user ID.
-     *
-     * @param string $str Some raw HTML expected to be from FetLife.com.
-     * @return mixed User ID on success. False on failure.
-     */
-    private function findFetLifeUserId ($str) {
-        $matches = array();
-        preg_match('/var currentUserId = ([0-9]+);/', $str, $matches);
-        return $matches[1];
-    }
-
-    /**
-     * Given some HTML from FetLife, this finds the current CSRF Token.
-     *
-     * @param string $str Some raw HTML expected to be form FetLife.com.
-     * @return mixed CSRF Token string on success. False on failure.
-     */
-    private function findFetLifeCSRFToken ($str) {
-        $matches = array();
-        preg_match('/<meta name="csrf-token" content="([+a-zA-Z0-9&#;=-]+)"\/>/', $str, $matches);
-        // Decode numeric HTML entities if there are any. See also:
-        //     http://www.php.net/manual/en/function.html-entity-decode.php#104617
-        $r = preg_replace_callback(
-            '/(&#[0-9]+;)/',
-            "myConvertHtmlEntities", // see function definition, below
-            $matches[1]
-        );
-        return $r;
-    }
-
-    private function myConvertHtmlEntities ($m) {
-        return mb_convert_encoding($m[1], 'UTF-8', 'HTML-ENTITIES');
     }
 
     /**
@@ -377,7 +234,6 @@ class FetLifeBridgePluginHelper {
 
     var $fl_nick;     // FetLife nickname for current user.
     var $fl_pw;       // FetLife password for current user.
-    var $cookiejar;   // File to store new/updated cookies for current user.
     var $fl_ini_path; // File path where FetLife settings are stored.
 
     function initialize () {
@@ -398,18 +254,10 @@ class FetLifeBridgePluginHelper {
                 common_log(1, "Failed to load FetLife Bridge configuration. Sure {$this->fl_ini_path} file exists and is writable by the webserver?");
             }
         } else {
-            // Configure FetLife session store directory.
-            if (!file_exists("$dir/fl_sessions")) {
-                if (!mkdir("$dir/fl_sessions", 0700)) {
-                    throw new Exception('Failed to create FetLife Sessions store directory.');
-                }
-            }
-
             if (array_key_exists($user->nickname, $fl_ini))
             {
                 $this->fl_nick = $fl_ini[$user->nickname]['fetlife_nickname'];
                 $this->fl_pw = $fl_ini[$user->nickname]['fetlife_password'];
-                $this->cookiejar = "$dir/fl_sessions/{$this->fl_nick}";
             }
         }
 
